@@ -38,8 +38,9 @@ class SileroTtsService:
         # Get language model URLs
         self.langs = self.list_languages()
 
-        # Load model
-        self.load_model(lang)
+        # Load model only if language is specified
+        if lang:
+            self.load_model(lang)
 
     def init_sessions_path(self, sessions_path="sessions"):
         self.sessions_path = Path(sessions_path)
@@ -49,7 +50,7 @@ class SileroTtsService:
     def load_model(self, lang_model="v3_en.pt"):
         # Download the model. Default to en.
         if lang_model not in self.langs:
-            raise Exception(f"{lang_model} not in {list(self.langs.values())}")
+            raise Exception(f"{lang_model} not in {list(self.langs.keys())}")
         
         model_url = self.langs[lang_model]
         self.model_file = Path(lang_model)
@@ -62,8 +63,26 @@ class SileroTtsService:
         
         self.model = torch.package.PackageImporter(self.model_file).load_pickle("tts_models", "model")
         self.model.to(self.device)
+        
+        # Set appropriate sample text based on model language
+        if lang_model.startswith('v4_ru'):
+            self.sample_text = "Здравствуйте! Как дела?"
+        elif lang_model.startswith('v4_ua'):
+            self.sample_text = "Привіт! Як справи?"
+        elif lang_model.startswith('v4_uz'):
+            self.sample_text = "Salom! Qandaysiz?"
+        elif lang_model.startswith('v4_indic'):
+            self.sample_text = "नमस्ते! कैसे हो आप?"
+        elif lang_model.startswith('v4_cyrillic'):
+            self.sample_text = "Здравствуйте! Как дела?"
+        else:
+            # Default English text for v3 models
+            self.sample_text = "The fallowed fallen swindle auspacious goats in portable power stations."
 
     def generate(self, speaker, text, session=""):
+        if not hasattr(self, 'model'):
+            raise Exception("No model loaded. Please load a model first.")
+        
         if len(text) > self.max_char_length:
             # Handle long text input
             text_chunks = self.split_text(text)
@@ -116,14 +135,15 @@ class SileroTtsService:
 
     def get_speakers(self):
         "List different speakers in model"
-        return self.model.speakers
+        if hasattr(self, 'model'):
+            return self.model.speakers
+        return []
 
     def generate_samples(self):
         "Remove current samples and generate new ones for all speakers."
-        logger.warning("Removing current samples")
-        for file in self.sample_path.iterdir():
-            os.remove(self.sample_path.joinpath(file))
-
+        if not hasattr(self, 'model'):
+            raise Exception("No model loaded. Please load a model first.")
+        
         logger.info("Creating new samples. This should take a minute...")
         for speaker in self.model.speakers: 
             sample_name = Path(self.sample_path.joinpath(f"{speaker}.wav"))
@@ -140,12 +160,7 @@ class SileroTtsService:
         logger.info(f"Sample text updated to {self.sample_text}")  
 
     def list_languages(self):
-        'Grab all v3 model links from https://models.silero.ai/models/tts'
-        lang_file = Path('langs.json')
-        if lang_file.exists():
-            with lang_file.open('r') as fh:
-                logger.info('Loading cached language index')
-                return json.load(fh)
+        'Grab all v3 and v4 model links from https://models.silero.ai/models/tts'
         logger.info('Loading remote language index')
         lang_base_url = 'https://models.silero.ai/models/tts'
         lang_urls = {}
@@ -154,16 +169,16 @@ class SileroTtsService:
         response = requests.get(lang_base_url)
         langs = [lang.split('/')[0] for lang in response.text.split('<a href="')][1:]
 
-        # Enter each web directory and grab v3 model file links
+        # Enter each web directory and grab v3 and v4 model file links
         for lang in langs:
             response = requests.get(f"{lang_base_url}/{lang}")
             if not response.ok:
                 raise f"Failed to get languages: {response.status_code}"
             lang_files = [f.split('"')[0] for f in response.text.split('<a href="')][1:]
 
-            # If a valid v3 file, add to list
+            # If a valid v3 or v4 file, add to list
             for lang_file in lang_files:
-                if lang_file.startswith('v3'):
+                if lang_file.startswith('v3') or lang_file.startswith('v4'):
                     lang_urls[lang_file]=f"{lang_base_url}/{lang}/{lang_file}"
         with open('langs.json','w') as fh:
             json.dump(lang_urls,fh)

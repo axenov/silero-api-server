@@ -15,14 +15,14 @@ module_path = pathlib.Path(__file__).resolve().parent
 os.chdir(module_path)
 SAMPLE_PATH = pathlib.Path("samples")
 
-tts_service = SileroTtsService(f"{module_path}//{SAMPLE_PATH}")
+tts_service = SileroTtsService(f"{module_path}//{SAMPLE_PATH}", lang="")
 app = FastAPI()
 
 # Make sure the samples directory exists
 if not SAMPLE_PATH.exists():
     SAMPLE_PATH.mkdir()
 
-if len(list(SAMPLE_PATH.iterdir())) == 0:
+if len(list(SAMPLE_PATH.iterdir())) == 0 and hasattr(tts_service, 'model'):
     logger.info("Samples empty, generating new samples.")
     tts_service.generate_samples()
 
